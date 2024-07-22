@@ -87,6 +87,10 @@ export const defaultAllowBuiltInDep = [
     'zlib'
 ]
 
+interface CrawlTracker {
+    visitedPages: Set<string>
+}
+
 /**
  * Get base classes of components
  *
@@ -317,6 +321,14 @@ function normalizeURL(urlString: string): string {
     return hostPath
 }
 
+function chunkArray<T>(array: T[], chunkSize: number): T[][] {
+    const chunks = []
+    for (let i = 0; i < array.length; i += chunkSize) {
+        chunks.push(array.slice(i, i + chunkSize))
+    }
+    return chunks
+}
+
 /**
  * Recursive crawl using normalizeURL and getURLsFromHTML
  * @param {string} baseURL
@@ -325,20 +337,23 @@ function normalizeURL(urlString: string): string {
  * @param {number} limit
  * @returns {Promise<string[]>}
  */
-async function crawl(baseURL: string, currentURL: string, pages: string[], limit: number): Promise<string[]> {
+async function crawl(baseURL: string, currentURL: string, tracker: CrawlTracker, limit: number, CONCURRENT_REQUESTS = 5): Promise<void> {
     const baseURLObj = new URL(baseURL)
     const currentURLObj = new URL(currentURL)
+    if (limit !== 0 && tracker.visitedPages.size >= limit) return
 
-    if (limit !== 0 && pages.length === limit) return pages
-
-    if (baseURLObj.hostname !== currentURLObj.hostname) return pages
+    if (baseURLObj.hostname !== currentURLObj.hostname) return
 
     const normalizeCurrentURL = baseURLObj.protocol + '//' + normalizeURL(currentURL)
-    if (pages.includes(normalizeCurrentURL)) {
-        return pages
+    if (tracker.visitedPages.has(normalizeCurrentURL)) {
+        return
     }
 
-    pages.push(normalizeCurrentURL)
+    tracker.visitedPages.add(normalizeCurrentURL)
+
+    if (normalizeCurrentURL === 'https://www.audi.pl/pl/web/pl/stories/zrownowazony-rozwoj.html') {
+        console.info('Found', tracker.visitedPages)
+    }
 
     if (process.env.DEBUG === 'true') console.info(`actively crawling ${currentURL}`)
     try {
@@ -346,24 +361,29 @@ async function crawl(baseURL: string, currentURL: string, pages: string[], limit
 
         if (resp.status > 399) {
             if (process.env.DEBUG === 'true') console.error(`error in fetch with status code: ${resp.status}, on page: ${currentURL}`)
-            return pages
+            return
         }
 
         const contentType: string | null = resp.headers.get('content-type')
         if ((contentType && !contentType.includes('text/html')) || !contentType) {
             if (process.env.DEBUG === 'true') console.error(`non html response, content type: ${contentType}, on page: ${currentURL}`)
-            return pages
+            return
         }
 
         const htmlBody = await resp.text()
-        const nextURLs = getURLsFromHTML(htmlBody, currentURL)
-        for (const nextURL of nextURLs) {
-            pages = await crawl(baseURL, nextURL, pages, limit)
+        let nextURLs = getURLsFromHTML(htmlBody, currentURL)
+
+        // Process in chunks to control concurrency
+        const urlChunks = chunkArray(nextURLs, CONCURRENT_REQUESTS)
+        for (const chunk of urlChunks) {
+            const promises = chunk.map((url) => crawl(baseURL, url, tracker, limit, CONCURRENT_REQUESTS))
+            await Promise.all(promises)
+
+            if (limit !== 0 && tracker.visitedPages.size >= limit) break
         }
     } catch (err) {
-        if (process.env.DEBUG === 'true') console.error(`error in fetch url: ${err.message}, on page: ${currentURL}`)
+        if (process.env.DEBUG === 'true') console.error(`Error in fetch URL: ${err.message}, on page: ${currentURL}`)
     }
-    return pages
 }
 
 /**
@@ -374,8 +394,10 @@ async function crawl(baseURL: string, currentURL: string, pages: string[], limit
  */
 export async function webCrawl(stringURL: string, limit: number): Promise<string[]> {
     const URLObj = new URL(stringURL)
-    const modifyURL = stringURL.slice(-1) === '/' ? stringURL.slice(0, -1) : stringURL
-    return await crawl(URLObj.protocol + '//' + URLObj.hostname, modifyURL, [], limit)
+    const modifyURL = stringURL.endsWith('/') ? stringURL.slice(0, -1) : stringURL
+    const tracker: CrawlTracker = { visitedPages: new Set<string>() }
+    await crawl(URLObj.origin, modifyURL, tracker, limit)
+    return Array.from(tracker.visitedPages)
 }
 
 export function getURLsFromXML(xmlBody: string, limit: number): string[] {
