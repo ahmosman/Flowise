@@ -153,7 +153,7 @@ class Cheerio_DocumentLoaders implements INode {
         let docs: IDocument[] = []
 
         if (relativeLinksMethod) {
-            if (process.env.DEBUG === 'true') options.logger.info(`Start ${relativeLinksMethod}`)
+            options.logger.info(`Start ${relativeLinksMethod}`)
             // if limit is 0 we don't want it to default to 10 so we check explicitly for null or undefined
             // so when limit is 0 we can fetch all the links
             if (limit === null || limit === undefined) limit = 10
@@ -165,11 +165,13 @@ class Cheerio_DocumentLoaders implements INode {
                     ? await webCrawl(url, limit)
                     : await xmlScrape(url, limit)
             if (process.env.DEBUG === 'true') options.logger.info(`pages: ${JSON.stringify(pages)}, length: ${pages.length}`)
+            options.logger.info(`pages length: ${pages.length}`)
             if (!pages || pages.length === 0) throw new Error('No relative links found')
             for (const page of pages) {
                 docs.push(...(await cheerioLoader(page)))
             }
-            if (process.env.DEBUG === 'true') options.logger.info(`Finish ${relativeLinksMethod}`)
+            console.log('docs length', docs.length)
+            options.logger.info(`Finish ${relativeLinksMethod}`)
         } else if (selectedLinks && selectedLinks.length > 0) {
             if (process.env.DEBUG === 'true')
                 options.logger.info(`pages: ${JSON.stringify(selectedLinks)}, length: ${selectedLinks.length}`)
