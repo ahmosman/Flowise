@@ -131,7 +131,7 @@ class Cheerio_DocumentLoaders implements INode {
 
         async function cheerioLoader(url: string): Promise<any> {
             try {
-                if (process.env.DEBUG === 'true') console.info(`cherrioLoader: ${url}`)
+                console.info(`cherrioLoader: ${url}`)
                 let docs: IDocument[] = []
                 if (url.endsWith('.pdf')) {
                     if (process.env.DEBUG === 'true') options.logger.info(`CheerioWebBaseLoader does not support PDF files: ${url}`)
